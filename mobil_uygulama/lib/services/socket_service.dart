@@ -3,6 +3,18 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+class PredictionEvent {
+  final String char;
+  final double confidence;
+  final int hands;
+
+  const PredictionEvent({
+    required this.char,
+    required this.confidence,
+    required this.hands,
+  });
+}
+
 /// Python sunucusuyla iletişimi yöneten WebSocket servis sınıfı
 class SocketService {
   io.Socket? _socket;
@@ -11,10 +23,13 @@ class SocketService {
 
   final StreamController<String> _predictionController =
       StreamController<String>.broadcast();
+  final StreamController<PredictionEvent> _detailController =
+      StreamController<PredictionEvent>.broadcast();
   final StreamController<bool> _connectionController =
       StreamController<bool>.broadcast();
 
   Stream<String> get predictionStream => _predictionController.stream;
+  Stream<PredictionEvent> get predictionDetailStream => _detailController.stream;
   Stream<bool> get connectionStream => _connectionController.stream;
 
   bool get isConnected => _isConnected;
@@ -54,9 +69,22 @@ class SocketService {
 
       _socket!.on('prediction_result', (data) {
         if (data != null && data['char'] != null) {
-          _lastPrediction = data['char'].toString();
+          final String charStr = data['char'].toString();
+          final double conf = (data['confidence'] is num)
+              ? (data['confidence'] as num).toDouble()
+              : 0.0;
+          final int hands = (data['hands'] is num)
+              ? (data['hands'] as num).toInt()
+              : 0;
+
+          _lastPrediction = charStr;
           if (!_predictionController.isClosed) {
-            _predictionController.add(_lastPrediction!);
+            _predictionController.add(charStr);
+          }
+          if (!_detailController.isClosed) {
+            _detailController.add(
+              PredictionEvent(char: charStr, confidence: conf, hands: hands),
+            );
           }
         }
       });
@@ -84,6 +112,7 @@ class SocketService {
   void dispose() {
     disconnect();
     _predictionController.close();
+    _detailController.close();
     _connectionController.close();
   }
 }

@@ -62,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final letters = LetterInfo.alphabets;
+    const letters = LetterInfo.alphabets;
     final currentLetter = letters[_currentIndex];
 
     return Scaffold(

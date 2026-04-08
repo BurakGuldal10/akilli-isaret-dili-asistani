@@ -126,6 +126,7 @@ def handle_frame(data):
 
         response_text = "..."
         confidence = 0.0
+        num_hands = 0
 
         if results.multi_hand_landmarks:
             num_hands = len(results.multi_hand_landmarks)
@@ -170,11 +171,15 @@ def handle_frame(data):
             except Exception as e:
                 print(f"❌ Tahmin hatası: {e}")
 
-        emit('prediction_result', {'char': response_text, 'confidence': round(confidence, 2)})
+        emit('prediction_result', {
+            'char': response_text,
+            'confidence': round(confidence, 2),
+            'hands': num_hands,
+        })
 
     except Exception as e:
         print(f"Frame işleme hatası: {e}")
-        emit('prediction_result', {'char': '...'})
+        emit('prediction_result', {'char': '...', 'confidence': 0.0, 'hands': 0})
 
 
 if __name__ == '__main__':
