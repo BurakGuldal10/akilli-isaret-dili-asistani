@@ -12,6 +12,7 @@ tespiti yapar ve eğitilmiş model ile tahmin üretir.
 """
 
 import os
+import sys
 import pickle
 import base64
 import cv2
@@ -19,6 +20,9 @@ import mediapipe as mp
 import numpy as np
 from flask import Flask
 from flask_socketio import SocketIO, emit
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*')
@@ -180,4 +184,4 @@ if __name__ == '__main__':
     print("=" * 50)
     print(f"📡 Sunucu adresi: http://0.0.0.0:{port}")
     print("=" * 50)
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)

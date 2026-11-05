@@ -27,7 +27,7 @@ android {
         // --- DEĞİŞİKLİK BURADA ---
         // Google ML Kit ve Kamera paketleri için en az 21 (Android 5.0) gereklidir.
         // Eski satır: minSdk = flutter.minSdkVersion
-        minSdk = 21 
+        minSdkVersion = flutter.minSdkVersion 
         targetSdk 35
         // -------------------------
 
