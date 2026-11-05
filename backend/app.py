@@ -1,22 +1,13 @@
 """
 ==============================================================================
-İŞARET DİLİ TANIMA API SUNUCUSU
+İŞARET DİLİ TANIMA API SUNUCUSU (backend/app.py)
 ==============================================================================
-Bu dosya, Flask-SocketIO kullanarak gerçek zamanlı işaret dili tanıma
-sunucusu oluşturur. Mobil ve Web uygulamalarından gelen kamera görüntülerini alır,
-MediaPipe ile el tespiti yapar ve eğitilmiş model ile tahmin üretir.
+Flask-SocketIO kullanarak gerçek zamanlı Türk İşaret Dili (TİD) tanıma sunucusu.
+Mobil ve Web uygulamalarından gelen kamera görüntülerini alır, MediaPipe ile el
+tespiti yapar ve eğitilmiş model ile tahmin üretir.
 
-Özellikler:
-- WebSocket üzerinden gerçek zamanlı iletişim
-- MediaPipe ile el landmark tespiti
-- Tek el ve iki el modeli desteği
-- Ölçekten bağımsız (Scale-Invariant) koordinat normalizasyonu
-- Olasılık eşiği (Confidence Threshold) ile hatalı tahmin filtreleme
-
-Kullanım:
-    python api_socket.py
-
-Sunucu varsayılan olarak 0.0.0.0:5000 adresinde çalışır.
+Çalıştırma:
+    python backend/app.py
 ==============================================================================
 """
 
@@ -33,7 +24,19 @@ app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*')
 
 # ======================== MODEL YÜKLEME ========================
-model_dict = pickle.load(open('./model.p', 'rb'))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_MODEL_PATHS = [
+    os.path.join(BASE_DIR, 'models', 'model.p'),
+    os.path.join(os.path.dirname(BASE_DIR), 'model.p'),
+]
+
+model_path = next((p for p in DEFAULT_MODEL_PATHS if os.path.exists(p)), None)
+if model_path is None:
+    raise FileNotFoundError(
+        "Eğitilmiş model dosyası bulunamadı! Lütfen 'backend/models/model.p' dosyasını oluşturun."
+    )
+
+model_dict = pickle.load(open(model_path, 'rb'))
 is_normalized = model_dict.get('normalized', False)
 
 if 'models' in model_dict:
@@ -44,11 +47,11 @@ else:
     model_single = model_dict.get('model')
     model_two = None
 
-print(f"Tek el modeli: {'Yüklendi' if model_single else 'Yok'}")
-print(f"İki el modeli: {'Yüklendi' if model_two else 'Yok'}")
+print(f"Model dosyası       : {model_path}")
+print(f"Tek el modeli       : {'Yüklendi' if model_single else 'Yok'}")
+print(f"İki el modeli       : {'Yüklendi' if model_two else 'Yok'}")
 print(f"Ölçek normalizasyonu: {'Aktif ([0, 1])' if is_normalized else 'Eski tip'}")
 
-# Minimum tahmin güven eşiği (0.0 - 1.0)
 CONFIDENCE_THRESHOLD = 0.45
 
 # ======================== MEDİAPIPE AYARLARI ========================
@@ -70,6 +73,16 @@ labels_dict = {
 }
 
 
+@app.route('/health')
+def health_check():
+    return {
+        'status': 'ok',
+        'single_hand_model': model_single is not None,
+        'two_hand_model': model_two is not None,
+        'normalized': is_normalized,
+    }
+
+
 @socketio.on('connect')
 def handle_connect():
     print('📱 İstemci bağlandı!')
@@ -82,16 +95,13 @@ def handle_disconnect():
 
 @socketio.on('frame_data')
 def handle_frame(data):
-    """
-    Mobil veya Web uygulamasından gelen her kamera karesini işler ve tahmin döndürür.
-    """
+    """Mobil veya Web uygulamasından gelen her kamera karesini işler ve tahmin döndürür."""
     try:
         image_data = data.get('image')
         if not image_data:
             emit('prediction_result', {'char': '...'})
             return
 
-        # Eğer data URI başlığı varsa temizle (Web uygulamasından gelebilecek kareler için)
         if ',' in image_data:
             image_data = image_data.split(',', 1)[1]
 

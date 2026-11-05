@@ -1,3 +1,12 @@
+"""
+MODEL EĞİTİMİ VE KAYDEDİLMESİ (ml_training/3_train_model.py)
+============================================================
+İşlenmiş landmark verilerini (data.pickle) okuyarak tek el (42 özellik) ve
+iki el (84 özellik) için dengeli Random Forest modelleri eğitir ve doğrudan
+backend/models/model.p konumuna kaydeder.
+"""
+
+import os
 import pickle
 from collections import Counter
 from sklearn.ensemble import RandomForestClassifier
@@ -5,21 +14,22 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import numpy as np
 
-data_dict = pickle.load(open("data.pickle", "rb"))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_PICKLE_PATH = os.path.join(PROJECT_ROOT, "data.pickle")
+OUTPUT_MODEL_DIR = os.path.join(PROJECT_ROOT, "backend", "models")
+OUTPUT_MODEL_PATH = os.path.join(OUTPUT_MODEL_DIR, "model.p")
+
+os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)
+data_dict = pickle.load(open(DATA_PICKLE_PATH, "rb"))
 
 hand_counts = data_dict.get("hand_counts", [1] * len(data_dict["data"]))
 is_normalized = data_dict.get("normalized", False)
 
-# Tek el verileri (42 özellik)
-single_hand_data = []
-single_hand_labels = []
+single_hand_data, single_hand_labels = [], []
+two_hand_data, two_hand_labels = [], []
 
-# İki el verileri (84 özellik)
-two_hand_data = []
-two_hand_labels = []
-
-SINGLE_HAND_FEATURES = 42  # 21 landmark * 2 koordinat
-TWO_HAND_FEATURES = 84     # 42 * 2 el
+SINGLE_HAND_FEATURES = 42
+TWO_HAND_FEATURES = 84
 
 for d, l, h in zip(data_dict["data"], data_dict["labels"], hand_counts):
     try:
@@ -45,10 +55,6 @@ models = {}
 
 
 def create_model():
-    """
-    Harici veri setlerindeki sınıf dengesizliklerini (farklı resim sayılarını)
-    dengelemek için class_weight='balanced' kullanılır.
-    """
     return RandomForestClassifier(
         n_estimators=150,
         max_depth=25,
@@ -60,7 +66,6 @@ def create_model():
     )
 
 
-# Tek el modeli eğit
 if len(single_hand_data) > 0:
     print("\n[TEK EL MODELİ]")
     data_single = np.asarray(single_hand_data, dtype=np.float32)
@@ -87,7 +92,6 @@ if len(single_hand_data) > 0:
         score = accuracy_score(ytest, y_pred)
         print(f"Başarı: {score * 100:.2f}%")
 
-        print("\nSınıf bazlı performans (en düşük 5 sınıf):")
         correct = Counter()
         total = Counter()
         for true, pred in zip(ytest, y_pred):
@@ -97,22 +101,18 @@ if len(single_hand_data) > 0:
 
         class_acc = {k: correct[k] / total[k] * 100 for k in total}
         sorted_acc = sorted(class_acc.items(), key=lambda x: x[1])
+        print("En düşük 5 sınıf:")
         for label, acc in sorted_acc[:5]:
             print(f"  {label}: {acc:.1f}%")
 
         models["single_hand"] = model_single
-    else:
-        print("Tek el için yeterli sınıf yok!")
 
-# İki el modeli eğit
 if len(two_hand_data) > 0:
     print("\n[İKİ EL MODELİ]")
     data_two = np.asarray(two_hand_data, dtype=np.float32)
     labels_two = np.asarray(two_hand_labels)
 
     unique_labels, counts = np.unique(labels_two, return_counts=True)
-    print(f"Sınıf dağılımı: {dict(zip(unique_labels, counts))}")
-
     valid_labels = unique_labels[counts >= 2]
 
     if len(valid_labels) >= 2:
@@ -133,14 +133,11 @@ if len(two_hand_data) > 0:
         print(f"Başarı: {score * 100:.2f}%")
 
         models["two_hand"] = model_two
-    else:
-        print("İki el için yeterli sınıf yok!")
 
-# Modelleri kaydet
 print("\n" + "=" * 50)
-with open("model.p", "wb") as f:
+with open(OUTPUT_MODEL_PATH, "wb") as f:
     pickle.dump({"models": models, "normalized": is_normalized}, f)
 
 print(f"Kaydedilen modeller: {list(models.keys())}")
-print("Modeller başarıyla 'model.p' dosyasına kaydedildi!")
+print(f"Hedef konum: {OUTPUT_MODEL_PATH}")
 print("=" * 50)

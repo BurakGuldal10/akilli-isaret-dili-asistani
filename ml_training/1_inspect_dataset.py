@@ -1,13 +1,15 @@
 """
-HARİCİ VERİ SETİ KONTROL VE DOĞRULAMA ARACI
-===========================================
-Kamera ile manuel fotoğraf çekimi yerine, dışarıdan indirilen (Kaggle, Roboflow, vb.)
-Türk İşaret Dili veri setinin klasör yapısını, harf dağılımını ve eksik sınıfları
-kontrol eder.
+HARİCİ VERİ SETİ KONTROL VE DOĞRULAMA ARACI (ml_training/1_inspect_dataset.py)
+==============================================================================
+Dışarıdan indirilen (Kaggle, Roboflow, vb.) Türk İşaret Dili veri setinin
+klasör yapısını, harf dağılımını ve eksik sınıfları kontrol eder.
 """
 
 import os
 import argparse
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
 EXPECTED_LETTERS = [
     "A", "B", "C", "Ç", "D", "E", "F", "G", "Ğ", "H",
@@ -74,11 +76,11 @@ def inspect_dataset(data_dir):
     else:
         print("29 Türkçe harfin tamamı veri setinde mevcut!")
     print("=" * 60)
-    print("Sonraki adım: python \"2 veri işleme1.py\" komutunu çalıştırın.")
+    print("Sonraki adım: python ml_training/2_process_dataset.py")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Harici Veri Seti Kontrol Aracı")
-    parser.add_argument("--data-dir", type=str, default="./data", help="Veri seti klasörü")
+    parser.add_argument("--data-dir", type=str, default=DEFAULT_DATA_DIR, help="Veri seti klasörü")
     args = parser.parse_args()
     inspect_dataset(args.data_dir)

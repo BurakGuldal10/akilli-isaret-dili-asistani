@@ -1,19 +1,24 @@
+"""
+VERİ SETİ İŞLEME VE ÖZNİTELİK ÇIKARIMI (ml_training/2_process_dataset.py)
+=========================================================================
+Harici veri setindeki görüntülerden MediaPipe ile el koordinatlarını çıkarır,
+ölçekten bağımsız [0, 1] aralığına normalize eder ve veri artırma (augmentation)
+uygulayarak data.pickle dosyasına kaydeder.
+"""
+
 import os
 import pickle
 import argparse
 import numpy as np
+import mediapipe as mp
+import cv2
 
-try:
-    import mediapipe as mp
-    import cv2
-except ImportError as e:
-    print(f"Hata: {e}")
-    exit()
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+DEFAULT_OUTPUT = os.path.join(PROJECT_ROOT, "data.pickle")
 
-# Desteklenen tüm resim uzantıları (Harici veri setleri için)
 VALID_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
 
-# Kaggle / Roboflow veri setlerinde sık karşılaşılan ASCII klasör adlarını Türkçe harflere eşleme
 FOLDER_NAME_MAP = {
     "C_": "Ç", "CH": "Ç", "C-": "Ç",
     "G_": "Ğ", "GH": "Ğ", "G-": "Ğ",
@@ -25,7 +30,7 @@ FOLDER_NAME_MAP = {
 
 
 def read_image_unicode(filepath):
-    """Windows'ta Türkçe karakterli (Ç, Ğ, İ, Ö, Ş, Ü) dosya yollarını güvenle okur."""
+    """Windows'ta Türkçe karakterli dosya yollarını güvenle okur."""
     try:
         stream = np.fromfile(filepath, dtype=np.uint8)
         return cv2.imdecode(stream, cv2.IMREAD_COLOR)
@@ -34,10 +39,7 @@ def read_image_unicode(filepath):
 
 
 def normalize_landmarks(x_, y_):
-    """
-    El koordinatlarını hem konumdan (min) hem de kameraya uzaklıktan (ölçek/boyut)
-    bağımsız hale getirir. Tüm koordinatlar [0.0, 1.0] aralığına çekilir.
-    """
+    """El koordinatlarını [0.0, 1.0] aralığına ölçekten bağımsız olarak normalize eder."""
     min_x, max_x = min(x_), max(x_)
     min_y, max_y = min(y_), max(y_)
     width = (max_x - min_x) if (max_x - min_x) > 1e-6 else 1e-6
@@ -66,22 +68,15 @@ def rotate_landmarks(data_aux, angle_deg):
 
 
 def augment_landmarks(data_aux):
-    """
-    Harici veri setindeki örnekleri zenginleştirmek için:
-    1. Orijinal normalize veri
-    2. Yatay aynalanmış (sol/sağ el uyumu için) veri
-    3. Hafif açılı (-10° ve +10°) döndürülmüş varyasyonlar
-    """
+    """Orijinal, yatay aynalanmış ve -10/+10 derece döndürülmüş varyasyonlar üretir."""
     augmented_data = [data_aux.copy()]
 
-    # Yatay aynalama ([0, 1] aralığında olduğu için 1.0 - x)
     mirrored = []
     for i in range(0, len(data_aux), 2):
         mirrored.append(1.0 - data_aux[i])
         mirrored.append(data_aux[i + 1])
     augmented_data.append(mirrored)
 
-    # Hafif döndürme varyasyonları (-10 ve +10 derece)
     for angle in (-10, 10):
         augmented_data.append(rotate_landmarks(data_aux, angle))
 
@@ -89,16 +84,11 @@ def augment_landmarks(data_aux):
 
 
 def discover_class_images(root_dir):
-    """
-    Harici veri seti klasör yapısını otomatik algılar:
-    - Yapı 1: ./data/A/resim.jpg
-    - Yapı 2: ./data/train/A/resim.jpg, ./data/valid/A/resim.jpg (Kaggle/Roboflow yapısı)
-    """
     class_files = {}
     if not os.path.exists(root_dir):
         return class_files
 
-    for current_root, dirs, files in os.walk(root_dir):
+    for current_root, _, files in os.walk(root_dir):
         image_files = [
             os.path.join(current_root, f)
             for f in files
@@ -108,7 +98,6 @@ def discover_class_images(root_dir):
             continue
 
         raw_label = os.path.basename(current_root).strip().upper()
-        # Eğer klasör adı train/test/valid ise üst klasöre bakma, alt klasörleri bekle
         if raw_label in ("TRAIN", "TEST", "VAL", "VALID", "VALIDATION", "DATA", "DATASET"):
             continue
 
@@ -120,18 +109,8 @@ def discover_class_images(root_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Harici İşaret Dili Veri Seti İşleme Aracı")
-    parser.add_argument(
-        "--data-dir",
-        type=str,
-        default="./data",
-        help="Veri setinin bulunduğu klasör yolu (varsayılan: ./data)",
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="data.pickle",
-        help="Çıktı pickle dosyası (varsayılan: data.pickle)",
-    )
+    parser.add_argument("--data-dir", type=str, default=DEFAULT_DATA_DIR)
+    parser.add_argument("--output", type=str, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
     mp_hands = mp.solutions.hands
@@ -148,7 +127,6 @@ def main():
     class_images = discover_class_images(args.data_dir)
     if not class_images:
         print(f"HATA: '{args.data_dir}' içinde işlenecek resim bulunamadı!")
-        print("Lütfen indirdiğiniz veri setini './data' klasörüne çıkarın.")
         return
 
     data = []
@@ -200,8 +178,6 @@ def main():
     print(f"Toplam başarılı işlenen resim : {processed}")
     print(f"El algılanamayan/atlanan resim: {skipped}")
     print(f"Toplam üretilen eğitim verisi : {len(data)} (Augmentation dahil)")
-    print(f"  - Tek el örnekleri : {hand_counts.count(1)}")
-    print(f"  - İki el örnekleri : {hand_counts.count(2)}")
 
     with open(args.output, "wb") as f:
         pickle.dump(

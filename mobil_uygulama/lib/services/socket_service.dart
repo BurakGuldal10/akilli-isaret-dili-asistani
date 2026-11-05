@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
-/// Python sunucusuyla iletişimi yöneten servis sınıfı
+/// Python sunucusuyla iletişimi yöneten WebSocket servis sınıfı
 class SocketService {
   io.Socket? _socket;
   String? _lastPrediction;
@@ -52,7 +52,6 @@ class SocketService {
         }
       });
 
-      // Tahmin sonucu
       _socket!.on('prediction_result', (data) {
         if (data != null && data['char'] != null) {
           _lastPrediction = data['char'].toString();
@@ -68,10 +67,9 @@ class SocketService {
     }
   }
 
-  /// Kamera görüntüsünü gönder
   void sendFrame(Uint8List jpegBytes) {
     if (_socket != null && _isConnected) {
-      String base64Image = base64Encode(jpegBytes);
+      final String base64Image = base64Encode(jpegBytes);
       _socket!.emit('frame_data', {'image': base64Image});
     }
   }

@@ -4,54 +4,10 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image/image.dart' as img;
-import 'socket_service.dart';
-
-/// Arka plan Isolate içinde YUV420 verisini 320x240 JPEG formatına dönüştürür.
-/// Böylece mobil cihazda ana ekran (UI thread) hiç kasmaz ve telefon ısınmaz.
-Uint8List? _convertYuvToJpegIsolate(Map<String, dynamic> params) {
-  try {
-    final int width = params['width'];
-    final int height = params['height'];
-    final Uint8List yBytes = params['yBytes'];
-    final Uint8List uBytes = params['uBytes'];
-    final Uint8List vBytes = params['vBytes'];
-    final int uvRowStride = params['uvRowStride'];
-    final int uvPixelStride = params['uvPixelStride'];
-
-    final imgBuffer = img.Image(width: width, height: height);
-
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final int uvIndex = uvPixelStride * (x ~/ 2) + uvRowStride * (y ~/ 2);
-        final int index = y * width + x;
-
-        final int yp = yBytes[index];
-        final int up = uBytes[uvIndex];
-        final int vp = vBytes[uvIndex];
-
-        int r = (yp + 1.402 * (vp - 128)).round();
-        int g = (yp - 0.344136 * (up - 128) - 0.714136 * (vp - 128)).round();
-        int b = (yp + 1.772 * (up - 128)).round();
-
-        imgBuffer.setPixelRgb(
-          x,
-          y,
-          r.clamp(0, 255),
-          g.clamp(0, 255),
-          b.clamp(0, 255),
-        );
-      }
-    }
-
-    final rotated = img.copyRotate(imgBuffer, angle: -90);
-    final flipped = img.flipHorizontal(rotated);
-    final resized = img.copyResize(flipped, width: 320, height: 240);
-    return Uint8List.fromList(img.encodeJpg(resized, quality: 75));
-  } catch (_) {
-    return null;
-  }
-}
+import '../core/app_theme.dart';
+import '../providers/app_state.dart';
+import '../services/image_converter.dart';
+import '../services/socket_service.dart';
 
 class RecognitionScreen extends StatefulWidget {
   final String targetLetter;
@@ -65,6 +21,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     with TickerProviderStateMixin {
   CameraController? _controller;
   final SocketService _socketService = SocketService();
+  final AppState _appState = AppState.instance;
   Timer? _webFrameTimer;
 
   bool _isBusy = false;
@@ -80,17 +37,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   late Animation<double> _glowAnimation;
 
   bool _showSuccess = false;
-
-  static String _serverUrl = const String.fromEnvironment(
-    'SERVER_URL',
-    defaultValue: kIsWeb ? 'http://localhost:5000' : 'http://172.20.10.3:5000',
-  );
-
-  static const Color warmOrange = Color(0xFFFF6B35);
-  static const Color warmRed = Color(0xFFE63946);
-  static const Color warmYellow = Color(0xFFF4A261);
-  static const Color warmGold = Color(0xFFFF9F1C);
-  static const Color darkBg = Color(0xFF1A1A2E);
 
   @override
   void initState() {
@@ -117,7 +63,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   }
 
   void _connectToServer() {
-    _socketService.connect(_serverUrl);
+    _socketService.connect(_appState.serverUrl);
 
     _socketService.connectionStream.listen((connected) {
       if (!mounted) return;
@@ -125,7 +71,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
         _isConnected = connected;
         if (connected) {
           _statusMessage = "Bağlı — Elinizi gösterin";
-          _statusColor = warmOrange;
+          _statusColor = AppTheme.warmOrange;
           _statusIcon = Icons.front_hand;
         } else {
           _statusMessage = "Sunucu bağlantısı yok";
@@ -140,21 +86,22 @@ class _RecognitionScreenState extends State<RecognitionScreen>
       setState(() {
         if (prediction == "...") {
           _statusMessage = "El algılanamıyor...";
-          _statusColor = warmYellow;
+          _statusColor = AppTheme.warmYellow;
           _statusIcon = Icons.pan_tool_alt;
           _showSuccess = false;
         } else if (prediction == widget.targetLetter) {
           _statusMessage = "DOĞRU: $prediction";
-          _statusColor = const Color(0xFF2ECC71);
+          _statusColor = AppTheme.successGreen;
           _statusIcon = Icons.check_circle;
           _showSuccess = true;
+          _appState.markLetterLearned(widget.targetLetter);
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted) setState(() => _showSuccess = false);
           });
         } else {
           _statusMessage =
               "Algılanan: $prediction  →  Hedef: ${widget.targetLetter}";
-          _statusColor = warmRed;
+          _statusColor = AppTheme.warmRed;
           _statusIcon = Icons.close;
           _showSuccess = false;
         }
@@ -167,13 +114,17 @@ class _RecognitionScreenState extends State<RecognitionScreen>
       final cameras = await availableCameras();
       if (cameras.isEmpty) return;
 
-      final frontCamera = cameras.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.front,
+      final desiredDirection = _appState.useFrontCamera
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+
+      final selectedCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == desiredDirection,
         orElse: () => cameras.first,
       );
 
       _controller = CameraController(
-        frontCamera,
+        selectedCamera,
         ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
@@ -183,7 +134,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
       if (!mounted) return;
 
       if (kIsWeb) {
-        // Web tarayıcılarında startImageStream desteklenmediği için periyodik kare yakalanır
         _webFrameTimer = Timer.periodic(
           const Duration(milliseconds: 350),
           (_) => _captureWebFrame(),
@@ -201,14 +151,17 @@ class _RecognitionScreenState extends State<RecognitionScreen>
       if (mounted) {
         setState(() {
           _statusMessage = "Kamera erişim hatası";
-          _statusColor = warmRed;
+          _statusColor = AppTheme.warmRed;
         });
       }
     }
   }
 
   Future<void> _captureWebFrame() async {
-    if (_isBusy || !_isConnected || _controller == null || !_controller!.value.isInitialized) {
+    if (_isBusy ||
+        !_isConnected ||
+        _controller == null ||
+        !_controller!.value.isInitialized) {
       return;
     }
     _isBusy = true;
@@ -230,7 +183,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     }
 
     try {
-      final jpegBytes = await compute(_convertYuvToJpegIsolate, {
+      final jpegBytes = await compute(convertYuvToJpegIsolate, {
         'width': cameraImage.width,
         'height': cameraImage.height,
         'yBytes': Uint8List.fromList(cameraImage.planes[0].bytes),
@@ -250,15 +203,18 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   }
 
   void _showServerSettingsDialog() {
-    final textController = TextEditingController(text: _serverUrl);
+    final textController = TextEditingController(text: _appState.serverUrl);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: darkBg,
+        backgroundColor: AppTheme.darkBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
           'Sunucu Adresi',
-          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold),
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: TextField(
           controller: textController,
@@ -272,26 +228,35 @@ class _RecognitionScreenState extends State<RecognitionScreen>
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: warmOrange),
+              borderSide: const BorderSide(color: AppTheme.warmOrange),
             ),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('İptal', style: GoogleFonts.poppins(color: Colors.white70)),
+            child: Text(
+              'İptal',
+              style: GoogleFonts.poppins(color: Colors.white70),
+            ),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: warmOrange),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.warmOrange,
+            ),
             onPressed: () {
+              final newUrl = textController.text.trim();
+              _appState.setServerUrl(newUrl);
               setState(() {
-                _serverUrl = textController.text.trim();
                 _statusMessage = "Yeniden bağlanılıyor...";
               });
-              _socketService.connect(_serverUrl);
+              _socketService.connect(newUrl);
               Navigator.pop(context);
             },
-            child: Text('Bağlan', style: GoogleFonts.poppins(color: Colors.white)),
+            child: Text(
+              'Bağlan',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -321,7 +286,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
         child: Container(
           padding: padding ?? const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: darkBg.withValues(alpha: 0.55),
+            color: AppTheme.darkBg.withValues(alpha: 0.55),
             borderRadius: br,
             border: Border.all(
               color: Colors.white.withValues(alpha: 0.12),
@@ -337,13 +302,13 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   Widget build(BuildContext context) {
     if (_controller == null || !_controller!.value.isInitialized) {
       return Scaffold(
-        backgroundColor: darkBg,
+        backgroundColor: AppTheme.darkBg,
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation(warmOrange),
+                valueColor: AlwaysStoppedAnimation(AppTheme.warmOrange),
               ),
               const SizedBox(height: 16),
               Text(
@@ -360,11 +325,10 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     }
 
     return Scaffold(
-      backgroundColor: darkBg,
+      backgroundColor: AppTheme.darkBg,
       body: Stack(
         children: [
           SizedBox.expand(child: CameraPreview(_controller!)),
-
           if (_showSuccess)
             AnimatedOpacity(
               opacity: _showSuccess ? 1.0 : 0.0,
@@ -372,14 +336,12 @@ class _RecognitionScreenState extends State<RecognitionScreen>
               child: Container(
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: const Color(0xFF2ECC71).withValues(alpha: 0.6),
+                    color: AppTheme.successGreen.withValues(alpha: 0.6),
                     width: 4,
                   ),
                 ),
               ),
             ),
-
-          // Üst Bar
           Positioned(
             top: 0,
             left: 0,
@@ -397,15 +359,15 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        darkBg.withValues(alpha: 0.7),
-                        darkBg.withValues(alpha: 0.4),
+                        AppTheme.darkBg.withValues(alpha: 0.7),
+                        AppTheme.darkBg.withValues(alpha: 0.4),
                       ],
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                     ),
                     border: Border(
                       bottom: BorderSide(
-                        color: warmOrange.withValues(alpha: 0.2),
+                        color: AppTheme.warmOrange.withValues(alpha: 0.2),
                       ),
                     ),
                   ),
@@ -416,14 +378,19 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         borderRadius: BorderRadius.circular(14),
                         child: InkWell(
                           onTap: () => Navigator.pop(context),
-                          child: const Icon(Icons.arrow_back_ios_new,
-                              color: Colors.white, size: 20),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
                       _glassContainer(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         borderRadius: BorderRadius.circular(20),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -434,8 +401,8 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: _isConnected
-                                    ? const Color(0xFF2ECC71)
-                                    : warmRed,
+                                    ? AppTheme.successGreen
+                                    : AppTheme.warmRed,
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -451,14 +418,16 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         ),
                       ),
                       const Spacer(),
-                      // Sunucu Ayar Butonu
                       _glassContainer(
                         padding: const EdgeInsets.all(8),
                         borderRadius: BorderRadius.circular(14),
                         child: InkWell(
                           onTap: _showServerSettingsDialog,
-                          child: const Icon(Icons.settings_ethernet,
-                              color: Colors.white, size: 20),
+                          child: const Icon(
+                            Icons.settings_ethernet,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ],
@@ -467,8 +436,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
               ),
             ),
           ),
-
-          // Hedef Göstergesi (Sağ üst)
           Positioned(
             top: MediaQuery.of(context).padding.top + 80,
             right: 16,
@@ -489,8 +456,8 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.5,
-                      shadows: [
-                        const Shadow(blurRadius: 4, color: Colors.black87),
+                      shadows: const [
+                        Shadow(blurRadius: 4, color: Colors.black87),
                       ],
                     ),
                   ),
@@ -505,22 +472,24 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              darkBg.withValues(alpha: 0.7),
-                              darkBg.withValues(alpha: 0.5)
+                              AppTheme.darkBg.withValues(alpha: 0.7),
+                              AppTheme.darkBg.withValues(alpha: 0.5),
                             ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: warmOrange.withValues(
-                                alpha: _glowAnimation.value),
+                            color: AppTheme.warmOrange.withValues(
+                              alpha: _glowAnimation.value,
+                            ),
                             width: 2.5,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: warmOrange.withValues(
-                                  alpha: _glowAnimation.value * 0.5),
+                              color: AppTheme.warmOrange.withValues(
+                                alpha: _glowAnimation.value * 0.5,
+                              ),
                               blurRadius: 20,
                               spreadRadius: 2,
                             ),
@@ -529,7 +498,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         child: Text(
                           widget.targetLetter,
                           style: GoogleFonts.poppins(
-                            color: warmGold,
+                            color: AppTheme.warmGold,
                             fontSize: 42,
                             fontWeight: FontWeight.bold,
                           ),
@@ -541,8 +510,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
               ),
             ),
           ),
-
-          // Alt Durum Çubuğu
           Positioned(
             bottom: 30,
             left: 16,
@@ -554,8 +521,10 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 400),
                   curve: Curves.easeInOut,
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 20,
+                  ),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [

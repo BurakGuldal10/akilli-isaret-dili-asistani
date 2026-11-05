@@ -1,11 +1,26 @@
+"""
+PC WEBCAM ÜZERİNDE MODEL TEST ARACI (ml_training/4_test_webcam.py)
+==================================================================
+Eğitilen modeli bilgisayar kamerası ile gerçek zamanlı olarak test eder.
+"""
+
+import os
 import pickle
 import time
 import cv2
 import mediapipe as mp
 import numpy as np
 
-# Modelleri yükle
-model_dict = pickle.load(open('./model.p', 'rb'))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATHS = [
+    os.path.join(PROJECT_ROOT, 'backend', 'models', 'model.p'),
+    os.path.join(PROJECT_ROOT, 'model.p'),
+]
+model_path = next((p for p in MODEL_PATHS if os.path.exists(p)), None)
+if model_path is None:
+    raise FileNotFoundError("Model dosyası bulunamadı!")
+
+model_dict = pickle.load(open(model_path, 'rb'))
 is_normalized = model_dict.get('normalized', False)
 
 if 'models' in model_dict:
@@ -16,18 +31,16 @@ else:
     model_single = model_dict.get('model')
     model_two = None
 
+print(f"Model: {model_path}")
 print(f"Tek el modeli: {'Yüklendi' if model_single else 'Yok'}")
 print(f"İki el modeli: {'Yüklendi' if model_two else 'Yok'}")
-print(f"Ölçek normalizasyonu: {'Aktif' if is_normalized else 'Eski tip'}")
 
-print("Kamera aranıyor...")
 cap = None
 for backend in [cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY]:
     cap = cv2.VideoCapture(0, backend)
     if cap.isOpened():
         ret, test_frame = cap.read()
         if ret and test_frame is not None:
-            print(f"Kamera bulundu! Backend: {backend}")
             break
     cap.release()
 
@@ -39,16 +52,11 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-print("Kamera başlatılıyor (lütfen bekleyin)...")
-time.sleep(2)
-for _ in range(60):
-    cap.read()
-print("Kamera hazır!")
+time.sleep(1)
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
-
 hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3, max_num_hands=2)
 
 labels_dict = {
@@ -62,7 +70,6 @@ labels_dict = {
 while True:
     ret, frame = cap.read()
     if not ret or frame is None:
-        print("UYARI: Frame alınamadı, tekrar deneniyor...")
         continue
 
     H, W, _ = frame.shape
@@ -81,10 +88,7 @@ while True:
                 mp_drawing_styles.get_default_hand_connections_style(),
             )
 
-        data_aux = []
-        x_ = []
-        y_ = []
-
+        data_aux, x_, y_ = [], [], []
         for hand_landmarks in results.multi_hand_landmarks:
             for lm in hand_landmarks.landmark:
                 x_.append(lm.x)
@@ -99,10 +103,8 @@ while True:
             data_aux.append((x - min_x) / width)
             data_aux.append((y - min_y) / height)
 
-        x1 = int(min_x * W) - 10
-        y1 = int(min_y * H) - 10
-        x2 = int(max_x * W) + 10
-        y2 = int(max_y * H) + 10
+        x1, y1 = int(min_x * W) - 10, int(min_y * H) - 10
+        x2, y2 = int(max_x * W) + 10, int(max_y * H) + 10
 
         try:
             active_model = model_single if num_hands == 1 else (model_two if num_hands == 2 else None)
@@ -110,11 +112,11 @@ while True:
 
             if active_model is not None:
                 prediction = active_model.predict([np.asarray(data_aux, dtype=np.float32)])
-                if isinstance(prediction[0], (str, np.str_)):
-                    predicted_character = str(prediction[0])
-                else:
-                    predicted_character = labels_dict.get(int(prediction[0]), '?')
-
+                predicted_character = (
+                    str(prediction[0])
+                    if isinstance(prediction[0], (str, np.str_))
+                    else labels_dict.get(int(prediction[0]), '?')
+                )
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 4)
                 cv2.putText(
                     frame,
@@ -126,32 +128,10 @@ while True:
                     3,
                     cv2.LINE_AA,
                 )
-            else:
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 4)
-                cv2.putText(
-                    frame,
-                    hand_text,
-                    (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 0, 255),
-                    2,
-                    cv2.LINE_AA,
-                )
         except Exception as e:
             print(f"Tahmin hatası: {e}")
 
-    cv2.putText(
-        frame,
-        "Cikis: 'q' tusuna bas",
-        (10, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-
+    cv2.putText(frame, "Cikis: 'q' tusuna bas", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     cv2.imshow('frame', frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
