@@ -1,0 +1,36 @@
+# Python sanal ortamı ve önbellekler
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Veri setleri ve büyük model çıktıları
+data/
+mobile_data/
+dataset/
+*.pickle
+*.p
+*.tflite
+*.h5
+*.keras
+
+# Flutter / Dart derleme ve araç klasörleri
+mobil_uygulama/build/
+mobil_uygulama/.dart_tool/
+mobil_uygulama/.flutter-plugins
+mobil_uygulama/.flutter-plugins-dependencies
+mobil_uygulama/.packages
+mobil_uygulama/android/.gradle/
+mobil_uygulama/android/local.properties
+mobil_uygulama/ios/Flutter/ephemeral/
+mobil_uygulama/linux/flutter/ephemeral/
+mobil_uygulama/macos/Flutter/ephemeral/
+mobil_uygulama/windows/flutter/ephemeral/
+
+# IDE ve işletim sistemi dosyaları
+.idea/
+mobil_uygulama/.idea/
+.DS_Store
+Thumbs.db
