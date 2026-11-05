@@ -30,7 +30,9 @@ mobil_uygulama/macos/Flutter/ephemeral/
 mobil_uygulama/windows/flutter/ephemeral/
 
 # IDE ve işletim sistemi dosyaları
+.vscode/
 .idea/
 mobil_uygulama/.idea/
+*.log
 .DS_Store
 Thumbs.db
