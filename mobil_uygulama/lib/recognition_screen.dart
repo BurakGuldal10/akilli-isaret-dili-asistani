@@ -1,10 +1,57 @@
-import 'dart:typed_data';
+import 'dart:async';
 import 'dart:ui';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image/image.dart' as img;
 import 'socket_service.dart';
+
+/// Arka plan Isolate içinde YUV420 verisini 320x240 JPEG formatına dönüştürür.
+/// Böylece mobil cihazda ana ekran (UI thread) hiç kasmaz ve telefon ısınmaz.
+Uint8List? _convertYuvToJpegIsolate(Map<String, dynamic> params) {
+  try {
+    final int width = params['width'];
+    final int height = params['height'];
+    final Uint8List yBytes = params['yBytes'];
+    final Uint8List uBytes = params['uBytes'];
+    final Uint8List vBytes = params['vBytes'];
+    final int uvRowStride = params['uvRowStride'];
+    final int uvPixelStride = params['uvPixelStride'];
+
+    final imgBuffer = img.Image(width: width, height: height);
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final int uvIndex = uvPixelStride * (x ~/ 2) + uvRowStride * (y ~/ 2);
+        final int index = y * width + x;
+
+        final int yp = yBytes[index];
+        final int up = uBytes[uvIndex];
+        final int vp = vBytes[uvIndex];
+
+        int r = (yp + 1.402 * (vp - 128)).round();
+        int g = (yp - 0.344136 * (up - 128) - 0.714136 * (vp - 128)).round();
+        int b = (yp + 1.772 * (up - 128)).round();
+
+        imgBuffer.setPixelRgb(
+          x,
+          y,
+          r.clamp(0, 255),
+          g.clamp(0, 255),
+          b.clamp(0, 255),
+        );
+      }
+    }
+
+    final rotated = img.copyRotate(imgBuffer, angle: -90);
+    final flipped = img.flipHorizontal(rotated);
+    final resized = img.copyResize(flipped, width: 320, height: 240);
+    return Uint8List.fromList(img.encodeJpg(resized, quality: 75));
+  } catch (_) {
+    return null;
+  }
+}
 
 class RecognitionScreen extends StatefulWidget {
   final String targetLetter;
@@ -18,6 +65,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     with TickerProviderStateMixin {
   CameraController? _controller;
   final SocketService _socketService = SocketService();
+  Timer? _webFrameTimer;
 
   bool _isBusy = false;
   String _statusMessage = "Sunucuya bağlanılıyor...";
@@ -26,11 +74,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   int _frameCounter = 0;
   bool _isConnected = false;
 
-  // Veri toplama modu
-  bool _isCollectionMode = false;
-  int _collectedCount = 0;
-
-  // Animasyonlar
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late AnimationController _glowController;
@@ -38,9 +81,11 @@ class _RecognitionScreenState extends State<RecognitionScreen>
 
   bool _showSuccess = false;
 
-  static const String serverUrl = 'http://172.20.10.3:5000';
+  static String _serverUrl = const String.fromEnvironment(
+    'SERVER_URL',
+    defaultValue: kIsWeb ? 'http://localhost:5000' : 'http://172.20.10.3:5000',
+  );
 
-  // ── Sıcak Renk Paleti ──
   static const Color warmOrange = Color(0xFFFF6B35);
   static const Color warmRed = Color(0xFFE63946);
   static const Color warmYellow = Color(0xFFF4A261);
@@ -51,7 +96,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   void initState() {
     super.initState();
 
-    // Hedef gösterge pulse animasyonu
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -60,7 +104,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Glow animasyonu
     _glowController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -74,15 +117,14 @@ class _RecognitionScreenState extends State<RecognitionScreen>
   }
 
   void _connectToServer() {
-    _socketService.connect(serverUrl);
+    _socketService.connect(_serverUrl);
 
     _socketService.connectionStream.listen((connected) {
+      if (!mounted) return;
       setState(() {
         _isConnected = connected;
         if (connected) {
-          _statusMessage = _isCollectionMode
-              ? "Veri toplamaya hazır"
-              : "Bağlı — Elinizi gösterin";
+          _statusMessage = "Bağlı — Elinizi gösterin";
           _statusColor = warmOrange;
           _statusIcon = Icons.front_hand;
         } else {
@@ -94,162 +136,171 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     });
 
     _socketService.predictionStream.listen((prediction) {
-      if (!_isCollectionMode) {
-        setState(() {
-          if (prediction == "...") {
-            _statusMessage = "El algılanamıyor...";
-            _statusColor = warmYellow;
-            _statusIcon = Icons.pan_tool_alt;
-            _showSuccess = false;
-          } else if (prediction == widget.targetLetter) {
-            _statusMessage = "DOĞRU: $prediction";
-            _statusColor = const Color(0xFF2ECC71);
-            _statusIcon = Icons.check_circle;
-            _showSuccess = true;
-            // Başarı animasyonu sonra sıfırla
-            Future.delayed(const Duration(seconds: 2), () {
-              if (mounted) setState(() => _showSuccess = false);
-            });
-          } else {
-            _statusMessage =
-                "Yanlış: $prediction  →  Hedef: ${widget.targetLetter}";
-            _statusColor = warmRed;
-            _statusIcon = Icons.close;
-            _showSuccess = false;
-          }
-        });
-      }
-    });
-
-    // Veri toplama durumu
-    _socketService.collectionStream.listen((data) {
+      if (!mounted) return;
       setState(() {
-        String status = data['status'] ?? '';
-        if (status == 'saved') {
-          _collectedCount = data['count'] ?? 0;
-          _statusMessage = "Kaydedildi: $_collectedCount görüntü";
-          _statusColor = warmGold;
-          _statusIcon = Icons.save;
-        } else if (status == 'started') {
-          _statusMessage = "VERİ TOPLAMA AKTİF";
-          _statusColor = warmRed;
-          _statusIcon = Icons.fiber_manual_record;
-        } else if (status == 'stopped') {
-          _statusMessage = "Toplam: $_collectedCount görüntü kaydedildi";
+        if (prediction == "...") {
+          _statusMessage = "El algılanamıyor...";
+          _statusColor = warmYellow;
+          _statusIcon = Icons.pan_tool_alt;
+          _showSuccess = false;
+        } else if (prediction == widget.targetLetter) {
+          _statusMessage = "DOĞRU: $prediction";
           _statusColor = const Color(0xFF2ECC71);
           _statusIcon = Icons.check_circle;
-          _isCollectionMode = false;
+          _showSuccess = true;
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) setState(() => _showSuccess = false);
+          });
+        } else {
+          _statusMessage =
+              "Algılanan: $prediction  →  Hedef: ${widget.targetLetter}";
+          _statusColor = warmRed;
+          _statusIcon = Icons.close;
+          _showSuccess = false;
         }
       });
     });
   }
 
-  void _toggleCollectionMode() {
-    setState(() {
-      _isCollectionMode = !_isCollectionMode;
-      if (_isCollectionMode) {
-        _socketService.startCollection(widget.targetLetter);
-        _collectedCount = 0;
-      } else {
-        _socketService.stopCollection();
-      }
-    });
-  }
-
   Future<void> _initializeCamera() async {
-    final cameras = await availableCameras();
-    final frontCamera = cameras.firstWhere(
-      (camera) => camera.lensDirection == CameraLensDirection.front,
-      orElse: () => cameras.first,
-    );
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return;
 
-    _controller = CameraController(
-      frontCamera,
-      ResolutionPreset.medium,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
-    );
+      final frontCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
 
-    await _controller!.initialize();
+      _controller = CameraController(
+        frontCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
 
-    if (!mounted) return;
+      await _controller!.initialize();
+      if (!mounted) return;
 
-    _controller!.startImageStream((image) {
-      if (!_isBusy && _isConnected) {
-        _isBusy = true;
-        _processCameraImage(image);
+      if (kIsWeb) {
+        // Web tarayıcılarında startImageStream desteklenmediği için periyodik kare yakalanır
+        _webFrameTimer = Timer.periodic(
+          const Duration(milliseconds: 350),
+          (_) => _captureWebFrame(),
+        );
+      } else {
+        _controller!.startImageStream((image) {
+          if (!_isBusy && _isConnected) {
+            _isBusy = true;
+            _processCameraImage(image);
+          }
+        });
       }
-    });
-    setState(() {});
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _statusMessage = "Kamera erişim hatası";
+          _statusColor = warmRed;
+        });
+      }
+    }
   }
 
-  Future<void> _processCameraImage(CameraImage cameraImage) async {
-    _frameCounter++;
-    int frameSkip = _isCollectionMode ? 4 : 6;
-    if (_frameCounter % frameSkip != 0) {
-      _isBusy = false;
+  Future<void> _captureWebFrame() async {
+    if (_isBusy || !_isConnected || _controller == null || !_controller!.value.isInitialized) {
       return;
     }
-
+    _isBusy = true;
     try {
-      img.Image? image = _convertYUV420ToImage(cameraImage);
-      if (image == null) {
-        _isBusy = false;
-        return;
-      }
-
-      int width = _isCollectionMode ? 480 : 320;
-      int height = _isCollectionMode ? 360 : 240;
-      int quality = _isCollectionMode ? 85 : 75;
-
-      img.Image resized = img.copyResize(image, width: width, height: height);
-      Uint8List jpegBytes =
-          Uint8List.fromList(img.encodeJpg(resized, quality: quality));
-
-      _socketService.sendFrame(jpegBytes);
-    } catch (e) {
-      print("Frame işleme hatası: $e");
+      final XFile file = await _controller!.takePicture();
+      final Uint8List bytes = await file.readAsBytes();
+      _socketService.sendFrame(bytes);
+    } catch (_) {
     } finally {
       _isBusy = false;
     }
   }
 
-  img.Image? _convertYUV420ToImage(CameraImage image) {
-    try {
-      final int width = image.width;
-      final int height = image.height;
-      final int uvRowStride = image.planes[1].bytesPerRow;
-      final int uvPixelStride = image.planes[1].bytesPerPixel ?? 1;
-
-      var imgBuffer = img.Image(width: width, height: height);
-
-      for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-          final int uvIndex = uvPixelStride * (x ~/ 2) + uvRowStride * (y ~/ 2);
-          final int index = y * width + x;
-
-          final yp = image.planes[0].bytes[index];
-          final up = image.planes[1].bytes[uvIndex];
-          final vp = image.planes[2].bytes[uvIndex];
-
-          int r = (yp + 1.402 * (vp - 128)).round();
-          int g = (yp - 0.344136 * (up - 128) - 0.714136 * (vp - 128)).round();
-          int b = (yp + 1.772 * (up - 128)).round();
-
-          imgBuffer.setPixelRgb(
-              x, y, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255));
-        }
-      }
-
-      var rotated = img.copyRotate(imgBuffer, angle: -90);
-      return img.flipHorizontal(rotated);
-    } catch (e) {
-      return null;
+  Future<void> _processCameraImage(CameraImage cameraImage) async {
+    _frameCounter++;
+    if (_frameCounter % 6 != 0) {
+      _isBusy = false;
+      return;
     }
+
+    try {
+      final jpegBytes = await compute(_convertYuvToJpegIsolate, {
+        'width': cameraImage.width,
+        'height': cameraImage.height,
+        'yBytes': Uint8List.fromList(cameraImage.planes[0].bytes),
+        'uBytes': Uint8List.fromList(cameraImage.planes[1].bytes),
+        'vBytes': Uint8List.fromList(cameraImage.planes[2].bytes),
+        'uvRowStride': cameraImage.planes[1].bytesPerRow,
+        'uvPixelStride': cameraImage.planes[1].bytesPerPixel ?? 1,
+      });
+
+      if (jpegBytes != null) {
+        _socketService.sendFrame(jpegBytes);
+      }
+    } catch (_) {
+    } finally {
+      _isBusy = false;
+    }
+  }
+
+  void _showServerSettingsDialog() {
+    final textController = TextEditingController(text: _serverUrl);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: darkBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Sunucu Adresi',
+          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: TextField(
+          controller: textController,
+          style: GoogleFonts.poppins(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'http://192.168.1.x:5000',
+            hintStyle: GoogleFonts.poppins(color: Colors.white38),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.white24),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: warmOrange),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('İptal', style: GoogleFonts.poppins(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: warmOrange),
+            onPressed: () {
+              setState(() {
+                _serverUrl = textController.text.trim();
+                _statusMessage = "Yeniden bağlanılıyor...";
+              });
+              _socketService.connect(_serverUrl);
+              Navigator.pop(context);
+            },
+            child: Text('Bağlan', style: GoogleFonts.poppins(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _webFrameTimer?.cancel();
     _controller?.dispose();
     _socketService.dispose();
     _pulseController.dispose();
@@ -257,7 +308,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     super.dispose();
   }
 
-  // ━━━━━━━━━━━━━━━ Glassmorphism container ━━━━━━━━━━━━━━━
   Widget _glassContainer({
     required Widget child,
     EdgeInsetsGeometry? padding,
@@ -292,7 +342,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(
+              const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation(warmOrange),
               ),
               const SizedBox(height: 16),
@@ -310,12 +360,11 @@ class _RecognitionScreenState extends State<RecognitionScreen>
     }
 
     return Scaffold(
+      backgroundColor: darkBg,
       body: Stack(
         children: [
-          // ── Kamera Önizleme ──
           SizedBox.expand(child: CameraPreview(_controller!)),
 
-          // ── Başarı Glow Efekti ──
           if (_showSuccess)
             AnimatedOpacity(
               opacity: _showSuccess ? 1.0 : 0.0,
@@ -326,12 +375,11 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                     color: const Color(0xFF2ECC71).withValues(alpha: 0.6),
                     width: 4,
                   ),
-                  borderRadius: BorderRadius.circular(0),
                 ),
               ),
             ),
 
-          // ── Üst Bar (Glassmorphism) ──
+          // Üst Bar
           Positioned(
             top: 0,
             left: 0,
@@ -363,7 +411,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                   ),
                   child: Row(
                     children: [
-                      // Geri butonu
                       _glassContainer(
                         padding: const EdgeInsets.all(8),
                         borderRadius: BorderRadius.circular(14),
@@ -374,8 +421,6 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         ),
                       ),
                       const SizedBox(width: 10),
-
-                      // Bağlantı durumu
                       _glassContainer(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 8),
@@ -391,20 +436,11 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                                 color: _isConnected
                                     ? const Color(0xFF2ECC71)
                                     : warmRed,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: (_isConnected
-                                            ? const Color(0xFF2ECC71)
-                                            : warmRed)
-                                        .withValues(alpha: 0.6),
-                                    blurRadius: 6,
-                                  ),
-                                ],
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _isConnected ? "Bağlı" : "Bağlantı Yok",
+                              _isConnected ? "Sunucu Bağlı" : "Bağlantı Yok",
                               style: GoogleFonts.poppins(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -414,53 +450,15 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                           ],
                         ),
                       ),
-
                       const Spacer(),
-
-                      // Veri toplama butonu
-                      GestureDetector(
-                        onTap: _isConnected ? _toggleCollectionMode : null,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: _isCollectionMode
-                                  ? [warmRed, const Color(0xFFD62828)]
-                                  : [warmOrange, warmGold],
-                            ),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    (_isCollectionMode ? warmRed : warmOrange)
-                                        .withValues(alpha: 0.4),
-                                blurRadius: 10,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _isCollectionMode
-                                    ? Icons.stop_rounded
-                                    : Icons.add_a_photo_rounded,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _isCollectionMode ? "DURDUR" : "VERİ TOPLA",
-                                style: GoogleFonts.poppins(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
+                      // Sunucu Ayar Butonu
+                      _glassContainer(
+                        padding: const EdgeInsets.all(8),
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          onTap: _showServerSettingsDialog,
+                          child: const Icon(Icons.settings_ethernet,
+                              color: Colors.white, size: 20),
                         ),
                       ),
                     ],
@@ -470,7 +468,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
             ),
           ),
 
-          // ── Hedef Göstergesi (Sağ üst) ──
+          // Hedef Göstergesi (Sağ üst)
           Positioned(
             top: MediaQuery.of(context).padding.top + 80,
             right: 16,
@@ -485,7 +483,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
               child: Column(
                 children: [
                   Text(
-                    _isCollectionMode ? "TOPLANIYOR" : "HEDEF",
+                    "HEDEF HARF",
                     style: GoogleFonts.poppins(
                       color: Colors.white,
                       fontSize: 11,
@@ -506,32 +504,23 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: _isCollectionMode
-                                ? [
-                                    warmRed.withValues(alpha: 0.8),
-                                    const Color(0xFFD62828)
-                                        .withValues(alpha: 0.8)
-                                  ]
-                                : [
-                                    darkBg.withValues(alpha: 0.7),
-                                    darkBg.withValues(alpha: 0.5)
-                                  ],
+                            colors: [
+                              darkBg.withValues(alpha: 0.7),
+                              darkBg.withValues(alpha: 0.5)
+                            ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: _isCollectionMode
-                                ? warmRed
-                                : warmOrange.withValues(
-                                    alpha: _glowAnimation.value),
+                            color: warmOrange.withValues(
+                                alpha: _glowAnimation.value),
                             width: 2.5,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: (_isCollectionMode ? warmRed : warmOrange)
-                                  .withValues(
-                                      alpha: _glowAnimation.value * 0.5),
+                              color: warmOrange.withValues(
+                                  alpha: _glowAnimation.value * 0.5),
                               blurRadius: 20,
                               spreadRadius: 2,
                             ),
@@ -540,7 +529,7 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                         child: Text(
                           widget.targetLetter,
                           style: GoogleFonts.poppins(
-                            color: _isCollectionMode ? Colors.white : warmGold,
+                            color: warmGold,
                             fontSize: 42,
                             fontWeight: FontWeight.bold,
                           ),
@@ -548,28 +537,12 @@ class _RecognitionScreenState extends State<RecognitionScreen>
                       );
                     },
                   ),
-                  if (_isCollectionMode) ...[
-                    const SizedBox(height: 8),
-                    _glassContainer(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Text(
-                        "$_collectedCount görüntü",
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
           ),
 
-          // ── Alt Durum Çubuğu (Glassmorphism) ──
+          // Alt Durum Çubuğu
           Positioned(
             bottom: 30,
             left: 16,
