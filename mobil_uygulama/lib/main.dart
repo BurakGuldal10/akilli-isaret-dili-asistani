@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/app_theme.dart';
-import 'screens/main_navigation_screen.dart';
+import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,7 +16,7 @@ class MyApp extends StatelessWidget {
       title: 'Akıllı İşaret Dili Asistanı',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const MainNavigationScreen(),
+      home: const HomeScreen(),
     );
   }
 }
