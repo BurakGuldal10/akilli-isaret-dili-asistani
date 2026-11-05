@@ -1,0 +1,1 @@
+# akilli-isaret-dili-asistani
