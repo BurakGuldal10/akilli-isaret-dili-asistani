@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 /// Python sunucusuyla iletişimi yöneten servis sınıfı
 class SocketService {
-  IO.Socket? _socket;
+  io.Socket? _socket;
   String? _lastPrediction;
   bool _isConnected = false;
 
@@ -23,7 +23,7 @@ class SocketService {
   void connect(String serverUrl) {
     try {
       disconnect();
-      _socket = IO.io(serverUrl, <String, dynamic>{
+      _socket = io.io(serverUrl, <String, dynamic>{
         'transports': ['websocket'],
         'autoConnect': true,
         'reconnection': true,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'app_state.dart';
 import 'recognition_screen.dart';
 
 void main() async {
@@ -13,6 +14,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Akıllı İşaret Dili Asistanı',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -21,92 +23,60 @@ class MyApp extends StatelessWidget {
           ThemeData.dark().textTheme,
         ),
       ),
-      home: const HomeScreen(),
+      home: const MainNavigationScreen(),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+/// 4 Ana Sekmeli Uygulama İskeleti (Adım 1)
+class MainNavigationScreen extends StatefulWidget {
+  const MainNavigationScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
-  final List<String> alphabets = const [
-    'A',
-    'B',
-    'C',
-    'Ç',
-    'D',
-    'E',
-    'F',
-    'G',
-    'Ğ',
-    'H',
-    'I',
-    'İ',
-    'J',
-    'K',
-    'L',
-    'M',
-    'N',
-    'O',
-    'Ö',
-    'P',
-    'R',
-    'S',
-    'Ş',
-    'T',
-    'U',
-    'Ü',
-    'V',
-    'Y',
-    'Z'
-  ];
-
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
+class _MainNavigationScreenState extends State<MainNavigationScreen> {
+  int _selectedIndex = 0;
+  final AppState _appState = AppState.instance;
 
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeOut,
-    );
-    _fadeController.forward();
+    _appState.addListener(_onStateChanged);
   }
 
   @override
   void dispose() {
-    _fadeController.dispose();
+    _appState.removeListener(_onStateChanged);
     super.dispose();
   }
 
-  // Her harf için sıcak renk tonu üret
-  List<Color> _getCardGradient(int index) {
-    final warmColors = [
-      [const Color(0xFFFF6B35), const Color(0xFFFF8E53)], // Turuncu
-      [const Color(0xFFE63946), const Color(0xFFFF6B6B)], // Kırmızı
-      [const Color(0xFFF4A261), const Color(0xFFE9C46A)], // Sarı-Turuncu
-      [
-        const Color(0xFFD62828),
-        const Color(0xFFE85D04)
-      ], // Koyu Kırmızı → Turuncu
-      [const Color(0xFFFF9F1C), const Color(0xFFFFBF69)], // Altın Sarısı
-      [const Color(0xFFCB4335), const Color(0xFFEB6840)], // Kiremit
-    ];
-    return warmColors[index % warmColors.length];
+  void _onStateChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      const HomeScreen(),
+      const _ComingSoonTab(
+        icon: Icons.edit_note_rounded,
+        title: 'Serbest Kelime Yazma Modu',
+        subtitle:
+            'Kameraya sırayla harfleri göstererek kelime ve cümle oluşturacağınız ekran (Adım 3\'te aktifleşecek).',
+        badgeText: 'Adım 3',
+      ),
+      _ComingSoonTab(
+        icon: Icons.emoji_events_rounded,
+        title: 'Kendini Test Et (Quiz Modu)',
+        subtitle:
+            'Rastgele sorulan harf ve kelimeleri kameraya doğru göstererek puan toplayacağınız yarışma ekranı (Adım 4\'te aktifleşecek).',
+        badgeText: 'Adım 4 • Puan: ${_appState.quizScore}',
+      ),
+      const SettingsAndProfileTab(),
+    ];
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -114,104 +84,338 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color(0xFF1A1A2E), // Koyu lacivert
-              Color(0xFF16213E), // Orta lacivert
-              Color(0xFF0F3460), // Derinlik
+              Color(0xFF1A1A2E),
+              Color(0xFF16213E),
+              Color(0xFF0F3460),
               Color(0xFF1A1A2E),
             ],
             stops: [0.0, 0.3, 0.7, 1.0],
           ),
         ),
         child: SafeArea(
+          child: IndexedStack(
+            index: _selectedIndex,
+            children: pages,
+          ),
+        ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF121629),
+          border: Border(
+            top: BorderSide(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1,
+            ),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.4),
+              blurRadius: 16,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (idx) => setState(() => _selectedIndex = idx),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: const Color(0xFFFF6B35),
+          unselectedItemColor: Colors.white54,
+          selectedLabelStyle: GoogleFonts.poppins(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+          unselectedLabelStyle: GoogleFonts.poppins(
+            fontSize: 11,
+          ),
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.menu_book_rounded),
+              label: 'Öğren',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.translate_rounded),
+              label: 'Kelime Yaz',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.quiz_rounded),
+              label: 'Quiz',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.tune_rounded),
+              label: 'Ayarlar',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 1. SEKME: Harf Öğrenme, Filtreleme ve İlerleme Takibi Ekranı
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final AppState _appState = AppState.instance;
+  String _selectedFilter = 'Tümü'; // 'Tümü', 'Tek El', 'Çift El', 'Öğrenilenler'
+
+  List<String> get _filteredLetters {
+    return AppState.alphabets.where((letter) {
+      final guide = _appState.getGuide(letter);
+      if (_selectedFilter == 'Tek El') return guide.handCount == 1;
+      if (_selectedFilter == 'Çift El') return guide.handCount == 2;
+      if (_selectedFilter == 'Öğrenilenler') return _appState.isLearned(letter);
+      return true;
+    }).toList();
+  }
+
+  List<Color> _getCardGradient(int index, bool isLearned) {
+    if (isLearned) {
+      return [const Color(0xFF1B998B), const Color(0xFF2ECC71)];
+    }
+    final warmColors = [
+      [const Color(0xFFFF6B35), const Color(0xFFFF8E53)],
+      [const Color(0xFFE63946), const Color(0xFFFF6B6B)],
+      [const Color(0xFFF4A261), const Color(0xFFE9C46A)],
+      [const Color(0xFFD62828), const Color(0xFFE85D04)],
+      [const Color(0xFFFF9F1C), const Color(0xFFFFBF69)],
+      [const Color(0xFFCB4335), const Color(0xFFEB6840)],
+    ];
+    return warmColors[index % warmColors.length];
+  }
+
+  void _showLetterGuideSheet(BuildContext context, String letter) {
+    final guide = _appState.getGuide(letter);
+    final learned = _appState.isLearned(letter);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF16213E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── HERO BÖLÜMÜ ──
-              FadeTransition(
-                opacity: _fadeAnimation,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFFF6B35), Color(0xFFE63946)],
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFFFF6B35)
-                                      .withValues(alpha: 0.4),
-                                  blurRadius: 15,
-                                  offset: const Offset(0, 5),
-                                ),
-                              ],
-                            ),
-                            child: const Icon(
-                              Icons.sign_language,
-                              color: Colors.white,
-                              size: 32,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'İşaret Dili',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                ShaderMask(
-                                  shaderCallback: (bounds) =>
-                                      const LinearGradient(
-                                    colors: [
-                                      Color(0xFFFF6B35),
-                                      Color(0xFFF4A261)
-                                    ],
-                                  ).createShader(bounds),
-                                  child: Text(
-                                    'Eğitim Uygulaması',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+              Row(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF6B35), Color(0xFFE63946)],
                       ),
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      letter,
+                      style: GoogleFonts.poppins(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$letter Harfi Nasıl Yapılır?',
+                          style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
-                        child: Row(
+                        const SizedBox(height: 4),
+                        Row(
                           children: [
-                            Icon(Icons.touch_app,
-                                color: const Color(0xFFFF9F1C), size: 18),
-                            const SizedBox(width: 8),
+                            Icon(
+                              guide.handCount == 1
+                                  ? Icons.back_hand_rounded
+                                  : Icons.sign_language_rounded,
+                              size: 15,
+                              color: const Color(0xFFFF9F1C),
+                            ),
+                            const SizedBox(width: 6),
                             Text(
-                              'Öğrenmek istediğin harfe dokun',
+                              '${guide.handCount} El İşareti',
                               style: GoogleFonts.poppins(
-                                fontSize: 13,
+                                fontSize: 12,
+                                color: const Color(0xFFFF9F1C),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.1),
+                  ),
+                ),
+                child: Text(
+                  guide.tip,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13.5,
+                    color: Colors.white.withValues(alpha: 0.9),
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor:
+                          learned ? const Color(0xFF2ECC71) : Colors.white70,
+                      side: BorderSide(
+                        color: learned
+                            ? const Color(0xFF2ECC71)
+                            : Colors.white24,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: () {
+                      _appState.toggleLetterLearned(letter);
+                      Navigator.pop(ctx);
+                    },
+                    icon: Icon(
+                      learned
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked,
+                      size: 18,
+                    ),
+                    label: Text(
+                      learned ? 'Öğrenildi' : 'Öğrenildi İşaretle',
+                      style: GoogleFonts.poppins(fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B35),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                RecognitionScreen(targetLetter: letter),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.videocam_rounded, size: 20),
+                      label: Text(
+                        'Kamerada Dene',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final learnedCount = _appState.learnedCount;
+    final totalCount = AppState.alphabets.length;
+    final percent = (_appState.progressRatio * 100).round();
+    final letters = _filteredLetters;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final int crossAxisCount = constraints.maxWidth > 900
+            ? 7
+            : (constraints.maxWidth > 600 ? 5 : 4);
+
+        return Column(
+          children: [
+            // ÜST BAŞLIK & İLERLEME KARTI
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF6B35), Color(0xFFE63946)],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.sign_language,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Türk İşaret Dili (TİD)',
+                              style: GoogleFonts.poppins(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            Text(
+                              'Harfe dokunarak kamerada pratik yap veya basılı tutarak ipucunu gör',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11.5,
                                 color: Colors.white70,
                               ),
                             ),
@@ -220,226 +424,597 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     ],
                   ),
-                ),
-              ),
+                  const SizedBox(height: 14),
 
-              // ── ALFABE GRID ──
-              Expanded(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: GridView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                        childAspectRatio: 0.85,
+                  // İlerleme Durumu Kartı
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
                       ),
-                      itemCount: alphabets.length,
-                      itemBuilder: (context, index) {
-                        return _LetterCard(
-                          letter: alphabets[index],
-                          gradient: _getCardGradient(index),
-                          index: index,
-                        );
-                      },
                     ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.workspace_premium_rounded,
+                                  color: Color(0xFFFF9F1C),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Öğrenme İlerlemesi',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '$learnedCount / $totalCount Harf (%$percent)',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF2ECC71),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            value: _appState.progressRatio,
+                            minHeight: 8,
+                            backgroundColor: Colors.white12,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Color(0xFF2ECC71),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Filtre Seçenekleri
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        'Tümü',
+                        'Tek El',
+                        'Çift El',
+                        'Öğrenilenler',
+                      ].map((filter) {
+                        final isSelected = _selectedFilter == filter;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(filter),
+                            selected: isSelected,
+                            onSelected: (_) =>
+                                setState(() => _selectedFilter = filter),
+                            selectedColor: const Color(0xFFFF6B35),
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.08),
+                            labelStyle: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                              color: Colors.white,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ALFABE GRID LİSTESİ
+            Expanded(
+              child: letters.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Bu filtrede henüz harf bulunmuyor.',
+                        style: GoogleFonts.poppins(color: Colors.white60),
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: GridView.builder(
+                        physics: const BouncingScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                          childAspectRatio: 0.85,
+                        ),
+                        itemCount: letters.length,
+                        itemBuilder: (context, index) {
+                          final letter = letters[index];
+                          final isLearned = _appState.isLearned(letter);
+                          final guide = _appState.getGuide(letter);
+                          return _LetterCard(
+                            letter: letter,
+                            handCount: guide.handCount,
+                            isLearned: isLearned,
+                            gradient: _getCardGradient(index, isLearned),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      RecognitionScreen(targetLetter: letter),
+                                ),
+                              );
+                            },
+                            onInfoTap: () =>
+                                _showLetterGuideSheet(context, letter),
+                          );
+                        },
+                      ),
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _LetterCard extends StatelessWidget {
+  final String letter;
+  final int handCount;
+  final bool isLearned;
+  final List<Color> gradient;
+  final VoidCallback onTap;
+  final VoidCallback onInfoTap;
+
+  const _LetterCard({
+    required this.letter,
+    required this.handCount,
+    required this.isLearned,
+    required this.gradient,
+    required this.onTap,
+    required this.onInfoTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onInfoTap,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: gradient[0].withValues(alpha: 0.35),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            // Sol üst: Tek el / Çift el etiketi
+            Positioned(
+              top: 6,
+              left: 7,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '$handCount El',
+                  style: GoogleFonts.poppins(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+
+            // Sağ üst: Öğrenildi rozeti veya İpucu butonu
+            Positioned(
+              top: 4,
+              right: 4,
+              child: InkWell(
+                onTap: onInfoTap,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    isLearned
+                        ? Icons.check_circle_rounded
+                        : Icons.info_outline_rounded,
+                    size: 16,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+            ),
+
+            // Merkez Harf
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 8),
+                  Text(
+                    letter,
+                    style: GoogleFonts.poppins(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isLearned ? 'Tamamlandı' : 'Pratik Yap',
+                      style: GoogleFonts.poppins(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-// ──────────────────────────────────────
-// Yeniden Tasarlanmış Harf Kartı
-// ──────────────────────────────────────
-class _LetterCard extends StatefulWidget {
-  final String letter;
-  final List<Color> gradient;
-  final int index;
-
-  const _LetterCard({
-    required this.letter,
-    required this.gradient,
-    required this.index,
-  });
+/// 4. SEKME: Ayarlar, Sunucu Bağlantısı ve İstatistikler
+class SettingsAndProfileTab extends StatefulWidget {
+  const SettingsAndProfileTab({super.key});
 
   @override
-  State<_LetterCard> createState() => _LetterCardState();
+  State<SettingsAndProfileTab> createState() => _SettingsAndProfileTabState();
 }
 
-class _LetterCardState extends State<_LetterCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  bool _isPressed = false;
+class _SettingsAndProfileTabState extends State<SettingsAndProfileTab> {
+  final AppState _appState = AppState.instance;
+  late TextEditingController _urlController;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _scaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
-
-    // Staggered giriş animasyonu
-    Future.delayed(Duration(milliseconds: widget.index * 50), () {
-      if (mounted) _controller.forward();
-    });
+    _urlController = TextEditingController(text: _appState.serverUrl);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _urlController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _scaleAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _scaleAnimation.value,
-          child: child,
-        );
-      },
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) {
-          setState(() => _isPressed = false);
-          Navigator.push(
-            context,
-            PageRouteBuilder(
-              transitionDuration: const Duration(milliseconds: 400),
-              pageBuilder: (_, animation, __) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: RecognitionScreen(targetLetter: widget.letter),
-                );
-              },
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Profil & Uygulama Ayarları',
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
-          );
-        },
-        onTapCancel: () => setState(() => _isPressed = false),
-        child: AnimatedScale(
-          scale: _isPressed ? 0.90 : 1.0,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  widget.gradient[0],
-                  widget.gradient[1],
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Öğrenme istatistiklerinizi görüntüleyin ve sunucu bağlantısını yapılandırın.',
+            style: GoogleFonts.poppins(fontSize: 12.5, color: Colors.white70),
+          ),
+          const SizedBox(height: 20),
+
+          // İstatistik Kartları
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.check_circle_outline_rounded,
+                  label: 'Öğrenilen Harf',
+                  value: '${_appState.learnedCount} / 29',
+                  color: const Color(0xFF2ECC71),
+                ),
               ),
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: widget.gradient[0].withValues(alpha: 0.45),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.emoji_events_outlined,
+                  label: 'Quiz Puanı',
+                  value: '${_appState.quizScore}',
+                  color: const Color(0xFFFF9F1C),
                 ),
-                BoxShadow(
-                  color: widget.gradient[1].withValues(alpha: 0.2),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Sunucu Bağlantı Ayarı
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
             ),
-            child: Stack(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Üst parlaklık efekti
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 35,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(18),
+                Row(
+                  children: [
+                    const Icon(Icons.dns_rounded, color: Color(0xFFFF6B35)),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Python API Sunucu Adresi',
+                      style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white.withValues(alpha: 0.25),
-                          Colors.white.withValues(alpha: 0.0),
-                        ],
-                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _urlController,
+                  style: GoogleFonts.poppins(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'http://192.168.1.x:5000',
+                    filled: true,
+                    fillColor: Colors.black26,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
                     ),
                   ),
                 ),
-                // İçerik
-                Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        widget.letter,
-                        style: GoogleFonts.poppins(
-                          fontSize: 34,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          height: 1.1,
-                          shadows: [
-                            Shadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF6B35),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(8),
+                    ),
+                    onPressed: () {
+                      _appState.setServerUrl(_urlController.text);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Sunucu adresi kaydedildi!'),
+                          backgroundColor: Color(0xFF2ECC71),
                         ),
-                        child: Text(
-                          'Öğren',
-                          style: GoogleFonts.poppins(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.9),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Sağ alt köşe ikonu
-                Positioned(
-                  bottom: 6,
-                  right: 8,
-                  child: Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 10,
-                    color: Colors.white.withValues(alpha: 0.4),
+                      );
+                    },
+                    icon: const Icon(Icons.save_rounded, size: 18),
+                    label: Text(
+                      'Sunucu Adresini Kaydet',
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 16),
+
+          // Kamera Yönü Seçimi
+          SwitchListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            tileColor: Colors.white.withValues(alpha: 0.06),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            activeThumbColor: const Color(0xFFFF6B35),
+            title: Text(
+              'Ön Kamerayı Kullan',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+            subtitle: Text(
+              _appState.useFrontCamera
+                  ? 'Selfie (Ön) kamera aktif'
+                  : 'Arka kamera aktif',
+              style: GoogleFonts.poppins(color: Colors.white60, fontSize: 12),
+            ),
+            value: _appState.useFrontCamera,
+            onChanged: (val) => _appState.setUseFrontCamera(val),
+          ),
+          const SizedBox(height: 16),
+
+          // İlerlemeyi Sıfırla
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFE63946),
+                side: const BorderSide(color: Color(0xFFE63946)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () {
+                _appState.resetProgress();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Öğrenme ilerlemesi sıfırlandı.'),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.restart_alt_rounded),
+              label: Text(
+                'Öğrenme İlerlemesini Sıfırla',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _StatCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 26),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          Text(
+            label,
+            style: GoogleFonts.poppins(fontSize: 12, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComingSoonTab extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String badgeText;
+
+  const _ComingSoonTab({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.badgeText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF6B35).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 54, color: const Color(0xFFFF6B35)),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF9F1C).withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                badgeText,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFFFF9F1C),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                color: Colors.white70,
+                height: 1.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
